@@ -12,11 +12,11 @@
 
 #include "config.h"
 #include "ignore.h"
-#include "options.h"
 #include "lang.h"
 #include "log.h"
-#include "util.h"
+#include "options.h"
 #include "print.h"
+#include "util.h"
 
 const char *color_line_number = "\033[1;33m"; /* bold yellow */
 const char *color_match = "\033[30;43m";      /* black with yellow background */
@@ -146,6 +146,8 @@ Output Options:\n\
                           don't match\n\
      --silent             Suppress all log messages, including errors\n\
      --stats              Print stats (files scanned, time taken, etc.)\n\
+     --stats-only         Print stats and nothing else.\n\
+                          (Same as --count when searching a single file)\n\
      --vimgrep            Print results like vim's :vimgrep /pattern/g would\n\
                           (it reports every match on the line)\n\
   -0 --null --print0      Separate filenames with null (for 'xargs -0')\n\
@@ -165,20 +167,21 @@ Search Options:\n\
      --ignore-dir NAME    Alias for --ignore for compatibility with ack.\n\
   -m --max-count NUM      Skip the rest of a file after NUM matches (Default: 10,000)\n\
      --one-device         Don't follow links to other devices.\n\
-  -p --path-to-agignore STRING\n\
-                          Use .agignore file at STRING\n\
+  -p --path-to-ignore STRING\n\
+                          Use .ignore file at STRING\n\
   -Q --literal            Don't parse PATTERN as a regular expression\n\
   -s --case-sensitive     Match case sensitively\n\
   -S --smart-case         Match case insensitively unless PATTERN contains\n\
                           uppercase characters (Enabled by default)\n\
      --search-binary      Search binary files for matches\n\
   -t --all-text           Search all text files (doesn't include hidden files)\n\
-  -u --unrestricted       Search all files (ignore .agignore, .gitignore, etc.;\n\
+  -u --unrestricted       Search all files (ignore .ignore, .gitignore, etc.;\n\
                           searches binary and hidden files as well)\n\
   -U --skip-vcs-ignores   Ignore VCS ignore files\n\
-                          (.gitignore, .hgignore, .svnignore; still obey .agignore)\n\
+                          (.gitignore, .hgignore, .svnignore; still obey .ignore)\n\
   -v --invert-match\n\
   -w --word-regexp        Only match whole words\n\
+  -W --width NUM          Truncate match lines after NUM characters\n\
   -z --search-zip         Search contents of compressed (e.g., gzip) files\n\
 \n");
     printf("File Types:\n\
@@ -217,6 +220,9 @@ void init_options(void) {
     opts.color_win_ansi = FALSE;
     opts.max_matches_per_file = 0;
     opts.max_search_depth = DEFAULT_MAX_SEARCH_DEPTH;
+    opts.mmap = TRUE;
+    opts.multiline = TRUE;
+    opts.width = 0;
     opts.path_sep = '\n';
     opts.print_break = TRUE;
     opts.print_path = PATH_PRINT_DEFAULT;
@@ -293,6 +299,7 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
     int rv;
     size_t lang_count;
     size_t lang_num = 0;
+    int has_filetype = 0;
 
     size_t longopts_len, full_len;
     option_t *longopts;
@@ -343,18 +350,32 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         { "literal", no_argument, NULL, 'Q' },
         { "match", no_argument, &useless, 0 },
         { "max-count", required_argument, NULL, 'm' },
-        /* "no-" is deprecated. Remove these eventually. */
-        { "no-numbers", no_argument, &opts.print_line_numbers, FALSE },
-        { "no-recurse", no_argument, NULL, 'n' },
+        { "mmap", no_argument, &opts.mmap, TRUE },
+        { "multiline", no_argument, &opts.multiline, TRUE },
+        /* Accept both --no-* and --no* forms for convenience/BC */
+        { "no-affinity", no_argument, &opts.use_thread_affinity, 0 },
         { "noaffinity", no_argument, &opts.use_thread_affinity, 0 },
+        { "no-break", no_argument, &opts.print_break, 0 },
         { "nobreak", no_argument, &opts.print_break, 0 },
+        { "no-color", no_argument, &opts.color, 0 },
         { "nocolor", no_argument, &opts.color, 0 },
+        { "no-filename", no_argument, NULL, 0 },
         { "nofilename", no_argument, NULL, 0 },
+        { "no-follow", no_argument, &opts.follow_symlinks, 0 },
         { "nofollow", no_argument, &opts.follow_symlinks, 0 },
+        { "no-group", no_argument, &group, 0 },
         { "nogroup", no_argument, &group, 0 },
+        { "no-heading", no_argument, &opts.print_path, PATH_PRINT_EACH_LINE },
         { "noheading", no_argument, &opts.print_path, PATH_PRINT_EACH_LINE },
+        { "no-mmap", no_argument, &opts.mmap, FALSE },
+        { "nommap", no_argument, &opts.mmap, FALSE },
+        { "no-multiline", no_argument, &opts.multiline, FALSE },
+        { "nomultiline", no_argument, &opts.multiline, FALSE },
+        { "no-numbers", no_argument, &opts.print_line_numbers, FALSE },
         { "nonumbers", no_argument, &opts.print_line_numbers, FALSE },
+        { "no-pager", no_argument, NULL, 0 },
         { "nopager", no_argument, NULL, 0 },
+        { "no-recurse", no_argument, NULL, 'n' },
         { "norecurse", no_argument, NULL, 'n' },
         { "null", no_argument, NULL, '0' },
         { "numbers", no_argument, &opts.print_line_numbers, 2 },
@@ -364,7 +385,7 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         { "parallel", no_argument, &opts.parallel, 1 },
         { "passthrough", no_argument, &opts.passthrough, 1 },
         { "passthru", no_argument, &opts.passthrough, 1 },
-        { "path-to-agignore", required_argument, NULL, 'p' },
+        { "path-to-ignore", required_argument, NULL, 'p' },
         { "print0", no_argument, NULL, '0' },
         { "print-long-lines", no_argument, &opts.print_long_lines, 1 },
         { "recurse", no_argument, NULL, 'r' },
@@ -375,9 +396,11 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         { "skip-vcs-ignores", no_argument, NULL, 'U' },
         { "smart-case", no_argument, NULL, 'S' },
         { "stats", no_argument, &opts.stats, 1 },
+        { "stats-only", no_argument, NULL, 0 },
         { "unrestricted", no_argument, NULL, 'u' },
         { "version", no_argument, &version, 1 },
         { "vimgrep", no_argument, &opts.vimgrep, 1 },
+        { "width", required_argument, NULL, 'W' },
         { "word-regexp", no_argument, NULL, 'w' },
         { "workers", required_argument, NULL, 0 },
     };
@@ -394,7 +417,7 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         option_t opt = { langs[i].name, no_argument, NULL, 0 };
         longopts[i + longopts_len] = opt;
     }
-    option_t opt = { NULL, 0, NULL, 0 }; 
+    option_t opt = { NULL, 0, NULL, 0 };
 	longopts[full_len - 1] = opt;
 
     if (argc < 2) {
@@ -427,8 +450,8 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         opts.stdout_inode = statbuf.st_ino;
     }
 
-    int pcre_opts = 0;
-    while ((ch = getopt_long(argc, argv, "A:aB:C:cDG:g:FfHhiLlm:nop:QRrSsvVtuUwz0", longopts, &opt_index)) != -1) {
+    char *file_search_regex = NULL;
+    while ((ch = getopt_long(argc, argv, "A:aB:C:cDG:g:FfHhiLlm:nop:QRrSsvVtuUwW:z0", longopts, &opt_index)) != -1) {
         switch (ch) {
             case 'A':
                 if (optarg) {
@@ -485,15 +508,14 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
             case 'g':
                 needs_query = accepts_query = 0;
                 opts.match_files = 1;
-            /* Fall through and build regex */
+            /* Fall through so regex is built */
             case 'G':
-                if (opts.casing == CASE_DEFAULT) {
-                    opts.casing = CASE_SENSITIVE;
+                if (file_search_regex) {
+                    log_err("File search regex (-g or -G) already specified.");
+                    usage();
+                    exit(1);
                 }
-                if (opts.casing != CASE_SENSITIVE) {
-                    pcre_opts |= PCRE_CASELESS;
-                }
-                compile_study(&opts.file_search_regex, &opts.file_search_regex_extra, optarg, pcre_opts, 0);
+                file_search_regex = ag_strdup(optarg);
                 break;
             case 'H':
                 opts.print_path = PATH_PRINT_TOP;
@@ -518,7 +540,7 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
                 opts.recurse_dirs = 0;
                 break;
             case 'p':
-                opts.path_to_agignore = optarg;
+                opts.path_to_ignore = optarg;
                 break;
             case 'o':
                 opts.only_matching = 1;
@@ -559,6 +581,12 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
             case 'w':
                 opts.word_regexp = 1;
                 break;
+            case 'W':
+                opts.width = strtol(optarg, &num_end, 10);
+                if (num_end == optarg || *num_end != '\0' || errno == ERANGE) {
+                    die("Invalid width\n");
+                }
+                break;
             case 'z':
                 opts.search_zip_files = 1;
                 break;
@@ -582,11 +610,13 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
                 } else if (strcmp(longopts[opt_index].name, "ignore") == 0) {
                     add_ignore_pattern(root_ignores, optarg);
                     break;
-                } else if (strcmp(longopts[opt_index].name, "nofilename") == 0) {
+                } else if (strcmp(longopts[opt_index].name, "no-filename") == 0 ||
+                           strcmp(longopts[opt_index].name, "nofilename") == 0) {
                     opts.print_path = PATH_PRINT_NOTHING;
                     opts.print_line_numbers = FALSE;
                     break;
-                } else if (strcmp(longopts[opt_index].name, "nopager") == 0) {
+                } else if (strcmp(longopts[opt_index].name, "no-pager") == 0 ||
+                           strcmp(longopts[opt_index].name, "nopager") == 0) {
                     out_fd = stdout;
                     opts.pager = NULL;
                     break;
@@ -611,6 +641,11 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
                 } else if (strcmp(longopts[opt_index].name, "silent") == 0) {
                     set_log_level(LOG_LEVEL_NONE);
                     break;
+                } else if (strcmp(longopts[opt_index].name, "stats-only") == 0) {
+                    opts.print_filename_only = 1;
+                    opts.print_path = PATH_PRINT_NOTHING;
+                    opts.stats = 1;
+                    break;
                 }
 
                 /* Continue to usage if we don't recognize the option */
@@ -620,6 +655,7 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
 
                 for (i = 0; i < lang_count; i++) {
                     if (strcmp(longopts[opt_index].name, langs[i].name) == 0) {
+                        has_filetype = 1;
                         ext_index[lang_num++] = i;
                         break;
                     }
@@ -635,8 +671,25 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         }
     }
 
+    if (opts.casing == CASE_DEFAULT) {
+        opts.casing = CASE_SMART;
+    }
 
-    if (ext_index[0]) {
+    if (file_search_regex) {
+        int pcre_opts = 0;
+        if (opts.casing == CASE_INSENSITIVE || (opts.casing == CASE_SMART && is_lowercase(file_search_regex))) {
+            pcre_opts |= PCRE_CASELESS;
+        }
+        if (opts.word_regexp) {
+            char *old_file_search_regex = file_search_regex;
+            ag_asprintf(&file_search_regex, "\\b%s\\b", file_search_regex);
+            free(old_file_search_regex);
+        }
+        compile_study(&opts.file_search_regex, &opts.file_search_regex_extra, file_search_regex, pcre_opts, 0);
+        free(file_search_regex);
+    }
+
+    if (has_filetype) {
         num_exts = combine_file_extensions(ext_index, lang_num, &extensions);
         lang_regex = make_lang_regex(extensions, num_exts);
         compile_study(&opts.file_search_regex, &opts.file_search_regex_extra, lang_regex, 0, 0);
@@ -654,10 +707,6 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
     argc -= optind;
     argv += optind;
 
-    if (opts.casing == CASE_DEFAULT) {
-        opts.casing = CASE_SMART;
-    }
-
     if (opts.pager) {
         out_fd = popen(opts.pager, "w");
         if (!out_fd) {
@@ -665,6 +714,14 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
             exit(1);
         }
     }
+
+#ifdef HAVE_PLEDGE
+    if (opts.skip_vcs_ignores) {
+        if (pledge("stdio rpath proc", NULL) == -1) {
+            die("pledge: %s", strerror(errno));
+        }
+    }
+#endif
 
     if (help) {
         usage();
@@ -725,13 +782,28 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
                 buf_len += fread(gitconfig_res + buf_len, 1, 64, gitconfig_file);
             } while (!feof(gitconfig_file) && buf_len > 0 && buf_len % 64 == 0);
             gitconfig_res[buf_len] = '\0';
-            log_debug("Found user's global Git excludesfile: %s", gitconfig_res);
+            if (buf_len == 0) {
+                free(gitconfig_res);
+                const char *config_home = getenv("XDG_CONFIG_HOME");
+                if (config_home) {
+                    ag_asprintf(&gitconfig_res, "%s/%s", config_home, "git/ignore");
+                } else {
+                    ag_asprintf(&gitconfig_res, "%s/%s", home_dir, ".config/git/ignore");
+                }
+            }
+            log_debug("global core.excludesfile: %s", gitconfig_res);
             load_ignore_patterns(root_ignores, gitconfig_res);
             free(gitconfig_res);
             pclose(gitconfig_file);
         }
 #endif // _MSC_VER
     }
+
+#ifdef HAVE_PLEDGE
+    if (pledge("stdio rpath proc", NULL) == -1) {
+        die("pledge: %s", strerror(errno));
+    }
+#endif
 
     if (opts.context > 0) {
         opts.before = opts.context;
@@ -793,7 +865,9 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
     }
 
     char *path = NULL;
+#ifdef PATH_MAX
     char *tmp = NULL;
+#endif
     opts.paths_len = argc;
     if (argc > 0) {
         *paths = (char**)ag_calloc(sizeof(char*), argc + 1);
@@ -806,8 +880,12 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
                 path[path_len - 1] = '\0';
             }
             (*paths)[i] = path;
+#ifdef PATH_MAX
             tmp = (char*)ag_malloc(PATH_MAX);
             (*base_paths)[i] = realpath(path, tmp);
+#else
+            (*base_paths)[i] = realpath(path, NULL);
+#endif
         }
         /* Make sure we search these paths instead of stdin. */
         opts.search_stream = 0;
@@ -816,8 +894,12 @@ void parse_options(int argc, char **argv, char **base_paths[], char **paths[]) {
         *paths = (char**)ag_malloc(sizeof(char*) * 2);
         *base_paths = (char**)ag_malloc(sizeof(char*) * 2);
         (*paths)[0] = path;
+#ifdef PATH_MAX
         tmp = (char*)ag_malloc(PATH_MAX);
         (*base_paths)[0] = realpath(path, tmp);
+#else
+        (*base_paths)[0] = realpath(path, NULL);
+#endif
         i = 1;
     }
     (*paths)[i] = NULL;

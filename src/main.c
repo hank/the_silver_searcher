@@ -1,8 +1,8 @@
+#include <ctype.h>
 #include <pcre.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 #include <sys/time.h>
 #include <unistd.h>
 #ifdef _WIN32
@@ -39,7 +39,6 @@ int main(int argc, char **argv) {
     int i;
     int pcre_opts = PCRE_MULTILINE;
     int study_opts = 0;
-    double time_diff;
     worker_t *workers = NULL;
     int workers_len;
     int num_cores;
@@ -47,13 +46,16 @@ int main(int argc, char **argv) {
 #ifdef KJK_BUILD
     extern void setup_crash_handler(); /* in kjk_crash_handler.cpp */
     setup_crash_handler();
+#elif HAVE_PLEDGE
+    if (pledge("stdio rpath proc exec", NULL) == -1) {
+        die("pledge: %s", strerror(errno));
+    }
 #endif
 
     set_log_level(LOG_LEVEL_WARN);
 
     work_queue = NULL;
     work_queue_tail = NULL;
-    memset(&stats, 0, sizeof(stats));
     root_ignores = init_ignore(NULL, "", 0);
 
 #ifdef _WIN32
@@ -62,6 +64,13 @@ int main(int argc, char **argv) {
 #endif
     out_fd = stdout;
 
+    parse_options(argc, argv, &base_paths, &paths);
+    log_debug("PCRE Version: %s", pcre_version());
+    if (opts.stats) {
+        memset(&stats, 0, sizeof(stats));
+        gettimeofday(&(stats.time_start), NULL);
+    }
+
 #ifdef USE_PCRE_JIT
     int has_jit = 0;
     pcre_config(PCRE_CONFIG_JIT, &has_jit);
@@ -69,11 +78,6 @@ int main(int argc, char **argv) {
         study_opts |= PCRE_STUDY_JIT_COMPILE;
     }
 #endif
-
-    gettimeofday(&(stats.time_start), NULL);
-
-    parse_options(argc, argv, &base_paths, &paths);
-    log_debug("PCRE Version: %s", pcre_version());
 
 #ifdef _WIN32
     {
@@ -85,7 +89,7 @@ int main(int argc, char **argv) {
     num_cores = (int)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
 
-    workers_len = num_cores;
+    workers_len = num_cores < 8 ? num_cores : 8;
     if (opts.literal) {
         workers_len--;
     }
@@ -105,7 +109,7 @@ int main(int argc, char **argv) {
     if (pthread_mutex_init(&print_mtx, NULL)) {
         die("pthread_mutex_init failed!");
     }
-    if (pthread_mutex_init(&stats_mtx, NULL)) {
+    if (opts.stats && pthread_mutex_init(&stats_mtx, NULL)) {
         die("pthread_mutex_init failed!");
     }
     if (pthread_mutex_init(&work_queue_mtx, NULL)) {
@@ -138,7 +142,7 @@ int main(int argc, char **argv) {
         }
         if (opts.word_regexp) {
             char *word_regexp_query;
-            ag_asprintf(&word_regexp_query, "\\b%s\\b", opts.query);
+            ag_asprintf(&word_regexp_query, "\\b(?:%s)\\b", opts.query);
             free(opts.query);
             opts.query = word_regexp_query;
             opts.query_len = strlen(opts.query);
@@ -153,7 +157,7 @@ int main(int argc, char **argv) {
             workers[i].id = i;
             int rv = pthread_create(&(workers[i].thread), NULL, &search_file_worker, &(workers[i].id));
             if (rv != 0) {
-                die("error in pthread_create(): %s", strerror(rv));
+                die("Error in pthread_create(): %s", strerror(rv));
             }
 #if defined(HAVE_PTHREAD_SETAFFINITY_NP) && defined(USE_CPU_SET)
             if (opts.use_thread_affinity) {
@@ -161,10 +165,12 @@ int main(int argc, char **argv) {
                 CPU_ZERO(&cpu_set);
                 CPU_SET(i % num_cores, &cpu_set);
                 rv = pthread_setaffinity_np(workers[i].thread, sizeof(cpu_set), &cpu_set);
-                if (rv != 0) {
-                    die("error in pthread_setaffinity_np(): %s", strerror(rv));
+                if (rv) {
+                    log_err("Error in pthread_setaffinity_np(): %s", strerror(rv));
+                    log_err("Performance may be affected. Use --noaffinity to suppress this message.");
+                } else {
+                    log_debug("Thread %i set to CPU %i", i, i);
                 }
-                log_debug("Thread %i set to CPU %i", i, i);
             } else {
                 log_debug("Thread affinity disabled.");
             }
@@ -172,6 +178,12 @@ int main(int argc, char **argv) {
             log_debug("No CPU affinity support.");
 #endif
         }
+
+#ifdef HAVE_PLEDGE
+        if (pledge("stdio rpath", NULL) == -1) {
+            die("pledge: %s", strerror(errno));
+        }
+#endif
         for (i = 0; paths[i] != NULL; i++) {
             log_debug("searching path %s for %s", paths[i], opts.query);
             symhash = NULL;
@@ -202,11 +214,12 @@ int main(int argc, char **argv) {
 
     if (opts.stats) {
         gettimeofday(&(stats.time_end), NULL);
-        time_diff = ((long)stats.time_end.tv_sec * 1000000 + stats.time_end.tv_usec) -
-                    ((long)stats.time_start.tv_sec * 1000000 + stats.time_start.tv_usec);
+        double time_diff = ((long)stats.time_end.tv_sec * 1000000 + stats.time_end.tv_usec) -
+                           ((long)stats.time_start.tv_sec * 1000000 + stats.time_start.tv_usec);
         time_diff /= 1000000;
-
-        printf("%ld matches\n%ld files searched\n%ld bytes searched\n%f seconds\n", stats.total_matches, stats.total_files, stats.total_bytes, time_diff);
+        printf("%ld matches\n%ld files contained matches\n%ld files searched\n%ld bytes searched\n%f seconds\n",
+               stats.total_matches, stats.total_file_matches, stats.total_files, stats.total_bytes, time_diff);
+        pthread_mutex_destroy(&stats_mtx);
     }
 
     if (opts.pager) {
@@ -215,7 +228,6 @@ int main(int argc, char **argv) {
     cleanup_options();
     pthread_cond_destroy(&files_ready);
     pthread_mutex_destroy(&work_queue_mtx);
-    pthread_mutex_destroy(&stats_mtx);
     pthread_mutex_destroy(&print_mtx);
     cleanup_ignore(root_ignores);
     free(workers);

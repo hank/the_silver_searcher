@@ -3,6 +3,12 @@
 
 #include <stdarg.h>
 
+#include "config.h"
+
+#include <pthread.h>
+
+extern pthread_mutex_t print_mtx;
+
 enum log_level {
     LOG_LEVEL_DEBUG = 10,
     LOG_LEVEL_MSG = 20,

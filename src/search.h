@@ -22,12 +22,13 @@
 
 #include <pthread.h>
 
+#include "decompress.h"
 #include "ignore.h"
 #include "log.h"
 #include "options.h"
 #include "print.h"
-#include "util.h"
 #include "uthash.h"
+#include "util.h"
 
 extern size_t alpha_skip_lookup[256];
 extern size_t *find_skip_lookup;

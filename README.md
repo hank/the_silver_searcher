@@ -4,7 +4,7 @@ A code searching tool similar to `ack`, with a focus on speed.
 
 [![Build Status](https://travis-ci.org/ggreer/the_silver_searcher.svg?branch=master)](https://travis-ci.org/ggreer/the_silver_searcher)
 
-[![Floobits Status](https://floobits.com/ggreer/ag.png)](https://floobits.com/ggreer/ag/redirect)
+[![Floobits Status](https://floobits.com/ggreer/ag.svg)](https://floobits.com/ggreer/ag/redirect)
 
 [![#ag on Freenode](http://img.shields.io/Freenode/%23ag.png)](https://webchat.freenode.net/?channels=ag)
 
@@ -15,7 +15,7 @@ Do you know C? I invite you to pair with me to [help me get to Ag 1.0](http://ge
 
 * It is an order of magnitude faster than `ack`.
 * It ignores file patterns from your `.gitignore` and `.hgignore`.
-* If there are files in your source repo you don't want to search, just add their patterns to a `.agignore` file. (\*cough\* extern \*cough\*)
+* If there are files in your source repo you don't want to search, just add their patterns to a `.ignore` file. (\*cough\* `*.min.js` \*cough\*)
 * The command name is 33% shorter than `ack`, and all keys are on the home row!
 
 Ag is quite stable now. Most changes are new features, minor bug fixes, or performance improvements. It's much faster than Ack in my benchmarks:
@@ -56,13 +56,15 @@ or
 * Ubuntu >= 13.10 (Saucy) or Debian >= 8 (Jessie)
 
         apt-get install silversearcher-ag
-* Fedora 19+
+* Fedora 21 and lower
 
         yum install the_silver_searcher
+* Fedora 22+
+
+        dnf install the_silver_searcher
 * RHEL7+
 
-        rpm -Uvh http://download.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-5.noarch.rpm
-        yum install the_silver_searcher
+        yum install epel-release.noarch the_silver_searcher
 * Gentoo
 
         emerge the_silver_searcher
@@ -84,7 +86,9 @@ or
 
         pkg_add the_silver_searcher
 
+### Cygwin
 
+Run the relevant [`setup-*.exe`](https://cygwin.com/install.html), and select "the\_silver\_searcher" in the "Utils" category.
 
 ## Building from source
 
@@ -112,15 +116,17 @@ or
 
         ./build.sh
 
-  On Windows:
+  On Windows (inside an msys/MinGW shell):
 
-        mingw32-make -f Makefile.w32
+        make -f Makefile.w32
 3. Make install:
 
         sudo make install
 
 
 ### Building a release tarball
+
+GPG-signed releases are available [here](http://geoff.greer.fm/ag).
 
 Building release tarballs requires the same dependencies, except for automake and pkg-config. Once you've installed the dependencies, just run:
 
@@ -151,7 +157,7 @@ There's also a fork of ack.vim tailored for use with Ag: [ag.vim][]
 
 ### Emacs
 
-You can use [ag.el][] as an Emacs fronted to Ag. See also: [helm-ag].
+You can use [ag.el][] as an Emacs front-end to Ag. See also: [helm-ag].
 
 [ag.el]: https://github.com/Wilfred/ag.el
 [helm-ag]: https://github.com/syohex/emacs-helm-ag
@@ -163,9 +169,9 @@ TextMate users can use Ag with [my fork](https://github.com/ggreer/AckMate) of t
 ## Other stuff you might like
 
 * [Ack](https://github.com/petdance/ack2) - Better than grep. Without Ack, Ag would not exist.
-* [AckMate](https://github.com/protocool/AckMate) - An ack-powered replacement for TextMate's slow built-in search.
 * [ack.vim](https://github.com/mileszs/ack.vim)
 * [ag.vim]( https://github.com/rking/ag.vim)
 * [Exuberant Ctags](http://ctags.sourceforge.net/) - Faster than Ag, but it builds an index beforehand. Good for *really* big codebases.
 * [Git-grep](http://git-scm.com/docs/git-grep) - As fast as Ag but only works on git repos.
+* [ripgrep](https://github.com/BurntSushi/ripgrep)
 * [Sack](https://github.com/sampson-chen/sack) - A utility that wraps Ack and Ag. It removes a lot of repetition from searching and opening matching files.

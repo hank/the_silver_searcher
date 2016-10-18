@@ -8,6 +8,8 @@ dist_man_MANS = doc/ag.1
 
 bashcompdir = $(pkgdatadir)/completions
 dist_bashcomp_DATA = ag.bashcomp.sh
+zshcompdir = $(datadir)/zsh/site-functions
+dist_zshcomp_DATA = _the_silver_searcher
 
 EXTRA_DIST = Makefile.w32 LICENSE NOTICE the_silver_searcher.spec README.md
 
@@ -21,5 +23,8 @@ endif
 
 test_big: ag
 	cram -v tests/big/*.t
+
+test_fail: ag
+	cram -v tests/fail/*.t
 
 .PHONY : all test clean
